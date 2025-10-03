@@ -1,17 +1,27 @@
+// controllers/historyController.js
 const db = require('../config/db')
 
-// ✅ Ambil data history dengan pagination, filter tanggal & perubahan status relay
+// ✅ CORS middleware khusus untuk development (bisa di-extend)
+const corsMiddleware = (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:8080') // frontend Quasar dev
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') return res.sendStatus(204)
+  next()
+}
+
+// ✅ Ambil data history device dengan pagination dan filter
 const getDeviceHistory = async (req, res) => {
   try {
     let { user_id, device_id, limit, offset, from, to } = req.query
 
-    // 🔸 Sanitasi dan konversi ke number
+    // Sanitasi
     user_id = Number(user_id)
-    device_id = Number(device_id)
+    device_id = device_id ? Number(device_id) : null
     limit = Number(limit) || 10
     offset = Number(offset) || 0
 
-    // 🔸 Bangun query dasar
+    // Query dasar
     let query = `
       SELECT 
         dh.device_id, 
@@ -21,66 +31,72 @@ const getDeviceHistory = async (req, res) => {
         wt.name
       FROM device_history dh
       JOIN water_tanks wt ON wt.id = dh.device_id
-      WHERE wt.user_id = ${user_id}
+      WHERE wt.user_id = ?
     `
+    const params = [user_id]
 
-    // Filter device tertentu
     if (device_id) {
-      query += ` AND dh.device_id = ${device_id}`
+      query += ` AND dh.device_id = ?`
+      params.push(device_id)
     }
 
-    // Filter tanggal (opsional)
     if (from) {
-      query += ` AND dh.created_at >= '${from}'`
+      query += ` AND dh.created_at >= ?`
+      params.push(from)
     }
     if (to) {
-      query += ` AND dh.created_at <= '${to}'`
+      query += ` AND dh.created_at <= ?`
+      params.push(to)
     }
 
-    // Urutan terbaru & pagination
-    query += ` ORDER BY dh.created_at DESC LIMIT ${limit} OFFSET ${offset};`
+    query += ` ORDER BY dh.created_at DESC LIMIT ? OFFSET ?`
+    params.push(limit, offset)
 
-    const [rows] = await db.query(query)
+    const [rows] = await db.query(query, params)
 
-    // 🧠 Filter perubahan relay status (ON→OFF→ON→OFF)
+    // Filter perubahan relay (ON↔OFF)
     const filteredRows = []
     let prevStatus = null
-
-    for (const row of rows.reverse()) { // urut dari paling lama ke baru
+    for (const row of rows.reverse()) {
       const currentStatus = row.relay_status
-      if (prevStatus !== null && currentStatus !== prevStatus) {
+      if (prevStatus === null || currentStatus !== prevStatus) {
         filteredRows.push(row)
       }
       prevStatus = currentStatus
     }
-
-    // Balik lagi ke urutan DESC untuk tampil di frontend
     filteredRows.reverse()
 
+    // Map relay_status ke status agar frontend konsisten
+    const dataToSend = filteredRows.map(r => ({
+      device_id: r.device_id,
+      name: r.name,
+      water_level: r.water_level,
+      status: r.relay_status, // <-- ini penting
+      timestamp: r.timestamp,
+    }))
+
     res.json({
-      total: filteredRows.length,
+      total: dataToSend.length,
       limit,
       offset,
-      data: filteredRows
+      data: dataToSend,
     })
-
   } catch (err) {
     console.error('❌ Error getDeviceHistory:', err)
     res.status(500).json({ message: 'Failed to fetch history' })
   }
 }
 
-// Event login (contoh tambahan)
+// Event login
 const getLoginEvents = async (req, res) => {
   try {
     const userId = req.query.user_id || req.user?.id
     if (!userId) return res.status(400).json({ message: 'User ID diperlukan' })
 
-    const [rows] = await db.query(`
-      SELECT * FROM login_events 
-      WHERE user_id = ${Number(userId)}
-      ORDER BY created_at DESC LIMIT 20
-    `)
+    const [rows] = await db.query(
+      `SELECT * FROM login_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
+      [Number(userId)]
+    )
     res.json(rows)
   } catch (err) {
     console.error('❌ Error getLoginEvents:', err)
@@ -89,6 +105,7 @@ const getLoginEvents = async (req, res) => {
 }
 
 module.exports = {
+  corsMiddleware,
   getDeviceHistory,
-  getLoginEvents
+  getLoginEvents,
 }

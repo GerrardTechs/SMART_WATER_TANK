@@ -1,12 +1,11 @@
-const express = require('express');
-const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
-const { getDeviceHistory, getLoginEvents } = require('../controllers/historyController');
+const express = require('express')
+const { corsMiddleware, getDeviceHistory, getLoginEvents } = require('../controllers/historyController')
+const router = express.Router()
 
-// Device history
-router.get('/device-history', protect, getDeviceHistory);
+// Terapkan CORS di semua route history
+router.use(corsMiddleware)
 
-// Login history
-router.get('/login-events', protect, getLoginEvents);
+router.get('/device-history', getDeviceHistory)
+router.get('/login-events', getLoginEvents)
 
-module.exports = router;
+module.exports = router
