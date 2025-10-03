@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "amqplib": "^0.10.9",
+    "axios": "^1.12.2",
     "bcryptjs": "^2.4.3",
     "body-parser": "^2.2.0",
     "cookie-parser": "^1.4.6",
